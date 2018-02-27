@@ -3,52 +3,39 @@
 // ---------------------------------------------------------
 
 #include <vector>
+#include <string>
+#include <iostream>
+#include <fstream>
 #include <opencv2/opencv.hpp>
 #include <opencv2/gpu/gpu.hpp>
 
-// Compute surface points from TSDF voxel grid and save points to point cloud file
-void SaveVoxelGrid2SurfacePointCloud(const std::string &file_name, int voxel_grid_dim_x, int voxel_grid_dim_y, int voxel_grid_dim_z,
-                                     float voxel_size, float voxel_grid_origin_x, float voxel_grid_origin_y, float voxel_grid_origin_z,
-                                     float * voxel_grid_TSDF, float * voxel_grid_weight,
-                                     float tsdf_thresh, float weight_thresh) {
 
-  // Count total number of points in point cloud
-  int num_pts = 0;
-  for (int i = 0; i < voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z; i++)
-    if (std::abs(voxel_grid_TSDF[i]) < tsdf_thresh && voxel_grid_weight[i] > weight_thresh)
-      num_pts++;
+void write_to_ply( const std::string& file_name, const std::vector<float3>& vertices, const std::vector<int3>& triangles ) {
+	std::ofstream f ;
+	f.open(file_name);
+	if( f.is_open() ) {
+		f << "ply" << std::endl;
+		f << "format ascii 1.0" << std::endl;
 
-  // Create header for .ply file
-  FILE *fp = fopen(file_name.c_str(), "w");
-  fprintf(fp, "ply\n");
-  fprintf(fp, "format binary_little_endian 1.0\n");
-  fprintf(fp, "element vertex %d\n", num_pts);
-  fprintf(fp, "property float x\n");
-  fprintf(fp, "property float y\n");
-  fprintf(fp, "property float z\n");
-  fprintf(fp, "end_header\n");
+		f << "element vertex " << vertices.size() << std::endl;
+		f << "property float x" << std::endl;
+		f << "property float y" << std::endl;
+		f << "property float z" << std::endl;
 
-  // Create point cloud content for ply file
-  for (int i = 0; i < voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z; i++) {
+		f << "element face " << triangles.size() << std::endl;
+		f << "property list uchar int vertex_indices" << std::endl;
+		f << "end_header" << std::endl;
 
-    // If TSDF value of voxel is less than some threshold, add voxel coordinates to point cloud
-    if (std::abs(voxel_grid_TSDF[i]) < tsdf_thresh && voxel_grid_weight[i] > weight_thresh) {
-
-      // Compute voxel indices in int for higher positive number range
-      int z = floor(i / (voxel_grid_dim_x * voxel_grid_dim_y));
-      int y = floor((i - (z * voxel_grid_dim_x * voxel_grid_dim_y)) / voxel_grid_dim_x);
-      int x = i - (z * voxel_grid_dim_x * voxel_grid_dim_y) - (y * voxel_grid_dim_x);
-
-      // Convert voxel indices to float, and save coordinates to ply file
-      float pt_base_x = voxel_grid_origin_x + (float) x * voxel_size;
-      float pt_base_y = voxel_grid_origin_y + (float) y * voxel_size;
-      float pt_base_z = voxel_grid_origin_z + (float) z * voxel_size;
-      fwrite(&pt_base_x, sizeof(float), 1, fp);
-      fwrite(&pt_base_y, sizeof(float), 1, fp);
-      fwrite(&pt_base_z, sizeof(float), 1, fp);
-    }
-  }
-  fclose(fp);
+		for ( int v = 0; v < vertices.size(); v++ ) {
+			f << vertices[v].x << " " << vertices[v].y << " " << vertices[v].z << std::endl;
+		}
+		for ( int t = 0; t < triangles.size(); t++ ) {
+			f << "3 " << triangles[t].x << " " << triangles[t].y << " " << triangles[t].z << std::endl;
+		}
+	} else {
+		std::cout << "Problem opening file for write " << file_name << std::endl;
+	}
+	f.close();
 }
 
 // Load an M x N matrix from a text file (numbers delimited by spaces/tabs)

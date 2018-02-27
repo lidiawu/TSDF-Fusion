@@ -5,7 +5,7 @@
 #include <sstream>
 #include <string>
 #include "utils.hpp"
-#include <Eigen/Dense>
+
 
 #include "MC_edge_table.cu"
 #include "MC_triangle_table.cu"
@@ -284,7 +284,7 @@ void process_kernel_output( int voxel_grid_dim_x, int voxel_grid_dim_y, int voxe
                             const int3            * h_triangles,
                             vector<float3>&    vertices,
                             vector<int3>&      triangles) {
-	using namespace Eigen;
+	
 
 	// For all but last row of voxels
 	int cube_index = 0;
@@ -341,7 +341,7 @@ void process_kernel_output( int voxel_grid_dim_x, int voxel_grid_dim_y, int voxe
 
 __host__
 void extract_surface(int voxel_grid_dim_x, int voxel_grid_dim_y, int voxel_grid_dim_z,  float voxel_grid_origin_x, float voxel_grid_origin_y, float voxel_grid_origin_z,float voxel_size, float* voxel_grid_TSDF, float* voxel_grid_weight, vector<float3>& vertices, vector<int3>& triangles){
-	using namespace Eigen;
+	
 
 	// Allocate storage on device and locally
 	// Fail if not possible
@@ -406,14 +406,19 @@ void extract_surface(int voxel_grid_dim_x, int voxel_grid_dim_y, int voxel_grid_
 		                               vz, d_vertices, d_triangles );
 
 		err = cudaDeviceSynchronize( );
-		//check_cuda_error( "device synchronize failed " , err);
+		if(err!=cudaSuccess)
+			cout << "device synchronize failed" << endl;
+		
 
 		// Copy the device vertices and triangles back to host
 		err = cudaMemcpy( h_vertices, d_vertices, num_vertices * sizeof( float3 ), cudaMemcpyDeviceToHost);
-		//check_cuda_error( "Copy of vertex data fom device failed " , err);
+		if(err!=cudaSuccess)
+			cout << "Copy of vertex data fom device failed " << endl;
 
 		err = cudaMemcpy( h_triangles, d_triangles, num_triangles * sizeof( int3 ), cudaMemcpyDeviceToHost);
-		//check_cuda_error( "Copy of triangle data from device failed " , err);
+		if(err!=cudaSuccess)
+			cout << "Copy of triangle data from device failed " << endl;
+		
 
 		// All through all the triangles and vertices and add them to master lists
 		process_kernel_output(voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z, h_vertices, h_triangles, vertices, triangles);
@@ -435,10 +440,10 @@ void extract_surface(int voxel_grid_dim_x, int voxel_grid_dim_y, int voxel_grid_
 int main(int argc, char * argv[]) {
 
   // Location of camera intrinsic file
-  std::string cam_K_file = "E:\\GrUVi\\wuqiw\\tsdf-fusion-master\\tsdf-fusion-master\\data\\camera-intrinsics.txt";
+  std::string cam_K_file = "E:\\GrUVi\\wuqiw\\tsdf-mc\\data\\camera-intrinsics.txt";
 
   // Location of folder containing RGB-D frames and camera pose files
-  std::string data_path = "E:\\GrUVi\\wuqiw\\tsdf-fusion-master\\tsdf-fusion-master\\data\\rgbd-frames";
+  std::string data_path = "E:\\GrUVi\\wuqiw\\tsdf-mc\\data\\rgbd-frames";
   int base_frame_idx = 150;
   int first_frame_idx = 150;
   float num_frames = 50;
@@ -551,9 +556,10 @@ int main(int argc, char * argv[]) {
 
   // Compute surface points from TSDF voxel grid and save to point cloud .ply file
   std::cout << "Saving surface point cloud (tsdf.ply)..." << std::endl;
-  SaveVoxelGrid2SurfacePointCloud("tsdf.ply", voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z, 
-                                  voxel_size, voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z,
-                                  voxel_grid_TSDF, voxel_grid_weight, 0.2f, 0.0f);
+  vector<float3> vertices ;
+  vector<int3> triangles;
+  extract_surface(voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z,voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z,voxel_size, gpu_voxel_grid_TSDF, gpu_voxel_grid_weight, vertices, triangles);
+  write_to_ply("new_tsdf.ply",vertices,triangles);
 
   // Save TSDF voxel grid and its parameters to disk as binary file (float array)
   std::cout << "Saving TSDF voxel grid values to disk (tsdf.bin)..." << std::endl;
