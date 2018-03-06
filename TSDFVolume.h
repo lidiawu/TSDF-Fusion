@@ -1,5 +1,5 @@
-#ifndef TSDFVolume
-#define TSDFVolum
+#ifndef TSDFVolume_h
+#define TSDFVolume_h
 
 #include <iostream>
 #include <string>
@@ -8,29 +8,29 @@ class TSDFVolume{
 public:
 	TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float size);
 
-	int get_dimx(){
-		return dim_x;
+	dim3 get_size(){
+		return m_size;
 	}
 
-	int get_dimy(){
-		return dim_y;
-	}
+	~TSDFVolume();
 
+	void deallocate();
+
+	void Integrate(float* depth_map,float* cam_K, float* cam2base);
 
 
 private:
-	float origin_x;
-	float origin_y;
-	float origin_z;
-	int dim_x;
-	int dim_y;
-	int dim_z;
-	float voxel_size;
+	float3 origin;
 
+	dim3 m_size;
+
+	float voxel_size;
+	float trunc_margin;
 	// Per grid point data
     float *m_distances;
-    // Colour data, RGB as 3xuchar
-    uchar3 *m_colours;
     //  Confidence weight for distance and colour
     float *m_weights;
-}
+	// translation vector for each node
+	float3 *m_deform;
+};
+#endif
