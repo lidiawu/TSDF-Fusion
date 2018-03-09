@@ -18,6 +18,21 @@ public:
 
 	void Integrate(float* depth_map,float* cam_K, float* cam2base);
 
+	float* get_grid(){
+		return m_distances;
+	}
+
+	float3 get_origin(){
+		return origin;
+	}
+	
+	float get_voxelsize(){
+		return voxel_size;
+	}
+
+	float3* get_deform(){
+		return m_deform;
+	}
 
 private:
 	float3 origin;

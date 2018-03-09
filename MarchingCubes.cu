@@ -92,18 +92,16 @@ int compute_edge_intersects( uint8_t cube_index,
 }
 
 __device__
-void compute_cube_vertices(int x, int y, int z, float3 origin, float voxel_size, float3 cube_vertices[8]){
-	  float pt_base_x = origin.x + (float) x * voxel_size;
-      float pt_base_y = origin.y + (float) y * voxel_size;
-      float pt_base_z = origin.z + (float) z * voxel_size;
-	  cube_vertices[0] = make_float3(pt_base_x,pt_base_y,pt_base_z);
-	  cube_vertices[1] = make_float3(pt_base_x + voxel_size,pt_base_y,pt_base_z);
-	  cube_vertices[2] = make_float3(pt_base_x + voxel_size,pt_base_y, pt_base_z + voxel_size);
-	  cube_vertices[3] = make_float3(pt_base_x, pt_base_y, pt_base_z  + voxel_size);
-	  cube_vertices[4] = make_float3(pt_base_x, pt_base_y + voxel_size,pt_base_z);
-	  cube_vertices[5] = make_float3(pt_base_x + voxel_size,pt_base_y + voxel_size,pt_base_z);
-      cube_vertices[6] = make_float3(pt_base_x + voxel_size,pt_base_y + voxel_size,pt_base_z + voxel_size);
-	  cube_vertices[7] = make_float3(pt_base_x, pt_base_y + voxel_size,pt_base_z + voxel_size);
+void compute_cube_vertices(int x, int y, int width, const float3* layer1, const float3* layer2, float3 cube_vertices[8]){
+	  int base = y * width + x;
+	  cube_vertices[0] = layer1[base];
+	  cube_vertices[1] = layer1[base + 1];
+	  cube_vertices[2] = layer2[base + 1];
+	  cube_vertices[3] = layer2[base];
+	  cube_vertices[4] = layer1[base + width];
+	  cube_vertices[5] = layer1[base + width + 1];
+      cube_vertices[6] = layer2[base + width + 1];
+	  cube_vertices[7] = layer2[base + width];
 	  
 }
 /**
@@ -138,6 +136,8 @@ uint8_t cube_type_for_values( const float values[8] ) {
 __global__
 void mc_kernel( const float * tsdf_values_layer_1,
 				const float * tsdf_values_layer_2,
+				const float3 * centers_layer_1,
+				const float3 * centers_layer_2,
                 dim3 size,
 				float3 origin,
                 float voxel_size,
@@ -167,13 +167,13 @@ void mc_kernel( const float * tsdf_values_layer_1,
 		// Load voxel values for the cube
 		float voxel_values[8] = {
 			tsdf_values_layer_1[voxel_index],							//	vx,   vy,   vz
-			tsdf_values_layer_1[voxel_index + 1],						//	vx,   vy,   vz+1
-			tsdf_values_layer_2[voxel_index + 1],		//	vx,   vy+1, vz+1
-			tsdf_values_layer_2[voxel_index],		//	vx,   vy+1, vz
-			tsdf_values_layer_1[voxel_index + size.x],						//	vx+1, vy,	vz
-			tsdf_values_layer_1[voxel_index + size.x+ 1],						//	vx+1, vy, 	vz+1
+			tsdf_values_layer_1[voxel_index + 1],						//	vx + 1,   vy,   vz
+			tsdf_values_layer_2[voxel_index + 1],		//	vx + 1, vy, vz+1
+			tsdf_values_layer_2[voxel_index],		//	vx, vy , vz+1
+			tsdf_values_layer_1[voxel_index + size.x],						//	vx, vy+1,	vz
+			tsdf_values_layer_1[voxel_index + size.x+ 1],						//	vx+1, vy+1, 	vz
 			tsdf_values_layer_2[voxel_index + size.x+ 1],	//	vx+1, vy+1, vz+1
-			tsdf_values_layer_2[voxel_index + size.x]	//	vx+1, vy+1, vz
+			tsdf_values_layer_2[voxel_index + size.x]	//	vx, vy+1, vz + 1
 		};
 
 		// Compute the cube type
@@ -184,7 +184,7 @@ void mc_kernel( const float * tsdf_values_layer_1,
 
 			// Compuyte the coordinates of the vertices of the cube
 			float3 cube_vertices[8];
-			compute_cube_vertices(vx, vy, vz, origin, voxel_size, cube_vertices);
+			compute_cube_vertices(vx,vy,size.x, centers_layer_1, centers_layer_2, cube_vertices);
 
 			// Compute intersects (up to 12 per cube)
 			float3 	intersects[12];
@@ -330,18 +330,22 @@ void extract_surface(TSDFVolume volume, vector<float3>& vertices, vector<int3>& 
 	size_t layer_size =  size.x * size.y;
 	clock.tik();
 	const float* grid = volume.get_grid();
+	const float3* centers = volume.get_deform();
 	for ( int vz = 0; vz < size.z - 1; vz++ ) {
 
 		// Set up for layer
 		const float * layer1_data = &(grid[vz * layer_size] );
 		const float * layer2_data = &(grid[(vz + 1) * layer_size] );
 
+		const float3 * layer1_center = &(centers[vz * layer_size]);
+		const float3 * layer2_center = &(centers[(vz + 1) * layer_size]);
 
 		// invoke the kernel
 		dim3 block( 16, 16, 1 );
 		dim3 grid ((size.x + block.x - 1) /block.x, (size.y + block.y - 1)/block.y, 1 );
 		
 		mc_kernel <<< grid,block >>>(layer1_data,layer2_data,
+									layer1_center, layer2_center,
 		                               size,
 									   volume.get_origin(),
 									   volume.get_voxelsize(),

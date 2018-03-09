@@ -4,6 +4,30 @@
 
 using namespace std;
 
+__global__
+void initialise_deformation( float3 * deformation, dim3 grid_size, float voxel_size, float3 grid_origin ) {
+
+    // Extract the voxel Y and Z coordinates we then iterate over X
+    int vy = threadIdx.x;
+    int vz = blockIdx.x;
+
+    // If this thread is in range
+    if ( vy < grid_size.y && vz < grid_size.z ) {
+
+        // The next (x_size) elements from here are the x coords
+        size_t base_voxel_index =  ((grid_size.x * grid_size.y) * vz ) + (grid_size.x * vy);
+
+        size_t voxel_index = base_voxel_index;
+        for ( int vx = 0; vx < grid_size.x; vx++ ) {
+            deformation[voxel_index].x = (float)vx * voxel_size + grid_origin.x;
+            deformation[voxel_index].y = (float)vy * voxel_size + grid_origin.y;
+            deformation[voxel_index].z = (float)vz * voxel_size + grid_origin.z;
+
+            voxel_index++;
+        }
+    }
+}
+
 __host__
 TSDFVolume::TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float size){
 		m_size.x = x;
@@ -36,7 +60,8 @@ TSDFVolume::TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float 
 		err = cudaMalloc(&m_deform, x * y * z * sizeof( float3 ));
 		if(err != cudaSuccess)
 			cout << "Couldn't allocate space for deformation data for TSDF" << endl;
-		cudaMemset(m_deform, 0,x * y * z * sizeof( float3 ));
+		initialise_deformation<<< 500, 500 >>>(m_deform, m_size, voxel_size, origin);
+		cudaDeviceSynchronize( );
 	}
 
 TSDFVolume::~TSDFVolume() {
@@ -67,17 +92,18 @@ void TSDFVolume::deallocate( ) {
 __global__
 void Integrate_kernal(float * cam_K, float * cam2base, float * depth_im,
                dim3 size, float3 origin, float voxel_size, float trunc_margin,
-               float * voxel_grid_TSDF, float * voxel_grid_weight) {
+               float * voxel_grid_TSDF, float * voxel_grid_weight, float3* deformation) {
 
-  int pt_grid_z = blockIdx.x;
-  int pt_grid_y = threadIdx.x;
+  int vz = blockIdx.x;
+  int vy = threadIdx.x;
 
-  for (int pt_grid_x = 0; pt_grid_x < size.x; ++pt_grid_x) {
+  for (int vx = 0; vx < size.x; ++vx) {
 
+	int volume_idx = vz * size.y * size.x + vy * size.x + vx;
     // Convert voxel center from grid coordinates to base frame camera coordinates
-    float pt_base_x = origin.x + pt_grid_x * voxel_size;
-    float pt_base_y = origin.y + pt_grid_y * voxel_size;
-    float pt_base_z = origin.z + pt_grid_z * voxel_size;
+    float pt_base_x = deformation[volume_idx].x;
+    float pt_base_y = deformation[volume_idx].y;
+    float pt_base_z = deformation[volume_idx].z;
 
     // Convert from base frame camera coordinates to current frame camera coordinates
     float tmp_pt[3] = {0};
@@ -107,7 +133,7 @@ void Integrate_kernal(float * cam_K, float * cam2base, float * depth_im,
       continue;
 
     // Integrate
-    int volume_idx = pt_grid_z * size.y * size.x + pt_grid_y * size.x + pt_grid_x;
+
     float dist = fmin(1.0f, diff / trunc_margin);
     float weight_old = voxel_grid_weight[volume_idx];
     float weight_new = weight_old + 1.0f;
@@ -131,5 +157,7 @@ void TSDFVolume::Integrate(float* depth_map,float* cam_K, float* cam2base){
 	 cudaMalloc(&gpu_cam2base, 4 * 4 * sizeof(float));
 	 cudaMemcpy(gpu_cam2base, cam2base, 4 * 4 * sizeof(float), cudaMemcpyHostToDevice);
 
-	 Integrate_kernal<<< m_size.z, m_size.y >>>(gpu_cam_K, gpu_cam2base, gpu_depth_im, m_size, origin, voxel_size, trunc_margin,m_distances, m_weights);
+	 Integrate_kernal<<< m_size.z, m_size.y >>>(gpu_cam_K, gpu_cam2base, gpu_depth_im, m_size, origin, voxel_size, trunc_margin,m_distances, m_weights, m_deform);
 }
+
+
