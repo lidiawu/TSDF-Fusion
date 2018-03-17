@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 
+
 class TSDFVolume{
 public:
 	TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float size);
@@ -47,5 +48,6 @@ private:
     float *m_weights;
 	// translation vector for each node
 	float3 *m_deform;
+	float3 *grid_coord;
 };
 #endif

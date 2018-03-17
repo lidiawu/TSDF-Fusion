@@ -1,6 +1,7 @@
 #include "TSDFVolume.h"
 #include <iostream>
 #include <string>
+#include "cuda_utils.h"
 
 using namespace std;
 
@@ -62,6 +63,8 @@ TSDFVolume::TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float 
 			cout << "Couldn't allocate space for deformation data for TSDF" << endl;
 		initialise_deformation<<< 500, 500 >>>(m_deform, m_size, voxel_size, origin);
 		cudaDeviceSynchronize( );
+
+		err = cudaMalloc(&grid_coord,
 	}
 
 TSDFVolume::~TSDFVolume() {
@@ -90,56 +93,67 @@ void TSDFVolume::deallocate( ) {
 }
 
 __global__
+void bilinear( float3 c00, float3 c01, float3 c10, float3 c11, float3* result){
+    float3  a = c00 * 0.5 + c10 * 0.5; 
+    float3  b = c01 * 0.5 + c11 * 0.5; 
+    *result = a * 0.5 + b * 0.5; 
+}
+
+__global__
+void trilinear(float3 c000, float3 c001, float3 c 010, float3 c011, float3 c100, float3 c101, float3 c110, float3 c111, float3* center){
+	float3* c0, c1;
+	bilinear(c000, c100, c010, c110, c0);
+	bilinear(c001, c101, c011, c111, c1);
+	*center = (*c0) * 0.5 + (*c1) * 0.5;
+}
+
+__global__
 void Integrate_kernal(float * cam_K, float * cam2base, float * depth_im,
                dim3 size, float3 origin, float voxel_size, float trunc_margin,
                float * voxel_grid_TSDF, float * voxel_grid_weight, float3* deformation) {
 
-  int vz = blockIdx.x;
-  int vy = threadIdx.x;
+	int volume_idx = blockIdx.x * 512 + threadIdx.x;
+	if (volume_idx < 500 * 500 * 500){
+		// Convert voxel center from grid coordinates to base frame camera coordinates
+		float pt_base_x = deformation[volume_idx].x;
+		float pt_base_y = deformation[volume_idx].y;
+		float pt_base_z = deformation[volume_idx].z;
 
-  for (int vx = 0; vx < size.x; ++vx) {
+		// Convert from base frame camera coordinates to current frame camera coordinates
+		float tmp_pt[3] = {0};
+		tmp_pt[0] = pt_base_x - cam2base[0 * 4 + 3];
+		tmp_pt[1] = pt_base_y - cam2base[1 * 4 + 3];
+		tmp_pt[2] = pt_base_z - cam2base[2 * 4 + 3];
+		float pt_cam_x = cam2base[0 * 4 + 0] * tmp_pt[0] + cam2base[1 * 4 + 0] * tmp_pt[1] + cam2base[2 * 4 + 0] * tmp_pt[2];
+		float pt_cam_y = cam2base[0 * 4 + 1] * tmp_pt[0] + cam2base[1 * 4 + 1] * tmp_pt[1] + cam2base[2 * 4 + 1] * tmp_pt[2];
+		float pt_cam_z = cam2base[0 * 4 + 2] * tmp_pt[0] + cam2base[1 * 4 + 2] * tmp_pt[1] + cam2base[2 * 4 + 2] * tmp_pt[2];
 
-	int volume_idx = vz * size.y * size.x + vy * size.x + vx;
-    // Convert voxel center from grid coordinates to base frame camera coordinates
-    float pt_base_x = deformation[volume_idx].x;
-    float pt_base_y = deformation[volume_idx].y;
-    float pt_base_z = deformation[volume_idx].z;
+		if (pt_cam_z <= 0)
+			return;
 
-    // Convert from base frame camera coordinates to current frame camera coordinates
-    float tmp_pt[3] = {0};
-    tmp_pt[0] = pt_base_x - cam2base[0 * 4 + 3];
-    tmp_pt[1] = pt_base_y - cam2base[1 * 4 + 3];
-    tmp_pt[2] = pt_base_z - cam2base[2 * 4 + 3];
-    float pt_cam_x = cam2base[0 * 4 + 0] * tmp_pt[0] + cam2base[1 * 4 + 0] * tmp_pt[1] + cam2base[2 * 4 + 0] * tmp_pt[2];
-    float pt_cam_y = cam2base[0 * 4 + 1] * tmp_pt[0] + cam2base[1 * 4 + 1] * tmp_pt[1] + cam2base[2 * 4 + 1] * tmp_pt[2];
-    float pt_cam_z = cam2base[0 * 4 + 2] * tmp_pt[0] + cam2base[1 * 4 + 2] * tmp_pt[1] + cam2base[2 * 4 + 2] * tmp_pt[2];
+		int pt_pix_x = roundf(cam_K[0 * 3 + 0] * (pt_cam_x / pt_cam_z) + cam_K[0 * 3 + 2]);
+		int pt_pix_y = roundf(cam_K[1 * 3 + 1] * (pt_cam_y / pt_cam_z) + cam_K[1 * 3 + 2]);
+		if (pt_pix_x < 0 || pt_pix_x >= 640 || pt_pix_y < 0 || pt_pix_y >= 480)
+			return;
 
-    if (pt_cam_z <= 0)
-      continue;
+		float depth_val = depth_im[pt_pix_y * 640 + pt_pix_x];
 
-    int pt_pix_x = roundf(cam_K[0 * 3 + 0] * (pt_cam_x / pt_cam_z) + cam_K[0 * 3 + 2]);
-    int pt_pix_y = roundf(cam_K[1 * 3 + 1] * (pt_cam_y / pt_cam_z) + cam_K[1 * 3 + 2]);
-    if (pt_pix_x < 0 || pt_pix_x >= 640 || pt_pix_y < 0 || pt_pix_y >= 480)
-      continue;
+		if (depth_val <= 0 || depth_val > 6)
+			return;
 
-    float depth_val = depth_im[pt_pix_y * 640 + pt_pix_x];
+		float diff = depth_val - pt_cam_z;
 
-    if (depth_val <= 0 || depth_val > 6)
-      continue;
+		if (diff <= -trunc_margin)
+			return;
 
-    float diff = depth_val - pt_cam_z;
+		// Integrate
 
-    if (diff <= -trunc_margin)
-      continue;
-
-    // Integrate
-
-    float dist = fmin(1.0f, diff / trunc_margin);
-    float weight_old = voxel_grid_weight[volume_idx];
-    float weight_new = weight_old + 1.0f;
-    voxel_grid_weight[volume_idx] = weight_new;
-    voxel_grid_TSDF[volume_idx] = (voxel_grid_TSDF[volume_idx] * weight_old + dist) / weight_new;
-  }
+		float dist = fmin(1.0f, diff / trunc_margin);
+		float weight_old = voxel_grid_weight[volume_idx];
+		float weight_new = weight_old + 1.0f;
+		voxel_grid_weight[volume_idx] = weight_new;
+		voxel_grid_TSDF[volume_idx] = (voxel_grid_TSDF[volume_idx] * weight_old + dist) / weight_new;
+	}
 }
 
 __host__
@@ -157,7 +171,8 @@ void TSDFVolume::Integrate(float* depth_map,float* cam_K, float* cam2base){
 	 cudaMalloc(&gpu_cam2base, 4 * 4 * sizeof(float));
 	 cudaMemcpy(gpu_cam2base, cam2base, 4 * 4 * sizeof(float), cudaMemcpyHostToDevice);
 
-	 Integrate_kernal<<< m_size.z, m_size.y >>>(gpu_cam_K, gpu_cam2base, gpu_depth_im, m_size, origin, voxel_size, trunc_margin,m_distances, m_weights, m_deform);
+	 int blocknum = ceil(500 * 500 * 500 / 512.0);
+	 Integrate_kernal<<< blocknum,512 >>>(gpu_cam_K, gpu_cam2base, gpu_depth_im, m_size, origin, voxel_size, trunc_margin,m_distances, m_weights, m_deform);
 }
-
+ 
 
