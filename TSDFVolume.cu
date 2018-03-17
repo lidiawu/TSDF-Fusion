@@ -5,26 +5,77 @@
 
 using namespace std;
 
+__device__
+float3 bilinear( float3 c00, float3 c01, float3 c10, float3 c11){
+    float3  a = c00 * 0.5 + c10 * 0.5; 
+    float3  b = c01 * 0.5 + c11 * 0.5; 
+    return (a * 0.5 + b * 0.5); 
+}
+
+__device__
+float3 trilinear(float3 c000, float3 c001, float3 c010, float3 c011, float3 c100, float3 c101, float3 c110, float3 c111){
+	float3 c0, c1;
+	c0 = bilinear(c000, c100, c010, c110);
+	c1 = bilinear(c001, c101, c011, c111);
+	return (c0 * 0.5 + c1 * 0.5);
+}
+
+
 __global__
-void initialise_deformation( float3 * deformation, dim3 grid_size, float voxel_size, float3 grid_origin ) {
+void initialize_grid(float3 * grid, dim3 grid_size, float voxel_size, float3 grid_origin ){
+	int vy = threadIdx.x;
+	int vz = blockIdx.x;
+
+	// If this thread is in range
+    if ( vy < grid_size.y+1 && vz < grid_size.z+1 ) {
+
+        // The next (x_size) elements from here are the x coords
+        size_t base_grid_index = (grid_size.x+1) * (grid_size.y+1) * vz + (grid_size.x+1) * vy;
+
+        size_t grid_index = base_grid_index;
+        for ( int vx = 0; vx < grid_size.x+1; vx++ ) {
+            grid[grid_index].x = (float)vx * voxel_size + grid_origin.x;
+            grid[grid_index].y = (float)vy * voxel_size + grid_origin.y;
+            grid[grid_index].z = (float)vz * voxel_size + grid_origin.z;
+
+            grid_index++;
+        }
+    }
+
+}
+
+__global__
+void deformation( float3* grid, float3 * deformation, dim3 grid_size ) {
 
     // Extract the voxel Y and Z coordinates we then iterate over X
     int vy = threadIdx.x;
     int vz = blockIdx.x;
-
+	float3 c000, c001,c010,c011,c100,c101,c110,c111;
+	size_t layer_size =  (grid_size.x + 1) * (grid_size.y + 1);
     // If this thread is in range
     if ( vy < grid_size.y && vz < grid_size.z ) {
 
         // The next (x_size) elements from here are the x coords
+		size_t base_grid_index = (grid_size.x+1) * (grid_size.y+1) * vz + (grid_size.x+1) * vy;
         size_t base_voxel_index =  ((grid_size.x * grid_size.y) * vz ) + (grid_size.x * vy);
 
         size_t voxel_index = base_voxel_index;
+		size_t grid_index = base_grid_index;
         for ( int vx = 0; vx < grid_size.x; vx++ ) {
-            deformation[voxel_index].x = (float)vx * voxel_size + grid_origin.x;
-            deformation[voxel_index].y = (float)vy * voxel_size + grid_origin.y;
-            deformation[voxel_index].z = (float)vz * voxel_size + grid_origin.z;
+			c000 = grid[grid_index + grid_size.x +1];
+			c001 = grid[grid_index];
+			c010 = grid[grid_index + grid_size.x +1 + layer_size];
+			c011 = grid[grid_index + layer_size];
+			c100 = grid[grid_index + grid_size.x +2];
+			c101 = grid[grid_index + 1];
+			c110 = grid[grid_index + grid_size.x + 2 + layer_size];
+			c111 = grid[grid_index + layer_size + 1];
+            
+			deformation[voxel_index] = trilinear(c000, c001,c010,c011,c100,c101,c110,c111);
+
 
             voxel_index++;
+			grid_index++;
         }
     }
 }
@@ -57,14 +108,20 @@ TSDFVolume::TSDFVolume(int x, int y, int z, float ox, float oy, float oz, float 
 		if (err != cudaSuccess)
 			cout << "Couldn't allocate space for weight data for TSDF" << endl;
 		cudaMemset(m_weights,0,data_size);
+
+		err = cudaMalloc(&grid_coord,(x+1) * (y+1) * (z+1) * sizeof(float3));
+		if(err != cudaSuccess)
+			cout << "Couldn't allocate space for deformation data for TSDF" << endl;
+		initialize_grid<<< 501, 501 >>>(grid_coord, m_size, voxel_size, origin);
+		cudaDeviceSynchronize( );
        
 		err = cudaMalloc(&m_deform, x * y * z * sizeof( float3 ));
 		if(err != cudaSuccess)
 			cout << "Couldn't allocate space for deformation data for TSDF" << endl;
-		initialise_deformation<<< 500, 500 >>>(m_deform, m_size, voxel_size, origin);
+		deformation<<< 500, 500 >>>(grid_coord, m_deform, m_size);
 		cudaDeviceSynchronize( );
 
-		err = cudaMalloc(&grid_coord,
+		
 	}
 
 TSDFVolume::~TSDFVolume() {
@@ -92,20 +149,6 @@ void TSDFVolume::deallocate( ) {
     }
 }
 
-__global__
-void bilinear( float3 c00, float3 c01, float3 c10, float3 c11, float3* result){
-    float3  a = c00 * 0.5 + c10 * 0.5; 
-    float3  b = c01 * 0.5 + c11 * 0.5; 
-    *result = a * 0.5 + b * 0.5; 
-}
-
-__global__
-void trilinear(float3 c000, float3 c001, float3 c 010, float3 c011, float3 c100, float3 c101, float3 c110, float3 c111, float3* center){
-	float3* c0, c1;
-	bilinear(c000, c100, c010, c110, c0);
-	bilinear(c001, c101, c011, c111, c1);
-	*center = (*c0) * 0.5 + (*c1) * 0.5;
-}
 
 __global__
 void Integrate_kernal(float * cam_K, float * cam2base, float * depth_im,
