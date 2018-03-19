@@ -19,18 +19,18 @@ using namespace std;
 int main(int argc, char * argv[]) {
 
   // Location of camera intrinsic file
-  std::string cam_K_file = "E:\\GrUVi\\wuqiw\\tsdf-mc\\data\\camera-intrinsics.txt";
+  std::string cam_K_file = "E:\\GrUVi\\wuqiw\\tsdf-mc\\upperbody_data\\depthIntrinsics.txt";
 
   // Location of folder containing RGB-D frames and camera pose files
-  std::string data_path = "E:\\GrUVi\\wuqiw\\tsdf-mc\\data\\rgbd-frames";
-  int base_frame_idx = 150;
-  int first_frame_idx = 150;
-  float num_frames = 50;
-
+  std::string data_path = "E:\\GrUVi\\wuqiw\\tsdf-mc\\upperbody_data";
+  int base_frame_idx = 0;
+  int first_frame_idx = 0;
+  float num_frames = 1;
   float cam_K[3 * 3];
   float base2world[4 * 4];
   float cam2base[4 * 4];
   float cam2world[4 * 4];
+  float world2cam[4 * 4];
   int im_width = 640;
   int im_height = 480;
   float* depth_im = new float[480 * 640];
@@ -45,15 +45,15 @@ int main(int argc, char * argv[]) {
   std::copy(cam_K_vec.begin(), cam_K_vec.end(), cam_K);
 
   // Read base frame camera pose
-  std::ostringstream base_frame_prefix;
-  base_frame_prefix << std::setw(6) << std::setfill('0') << base_frame_idx;
-  std::string base2world_file = data_path + "\\frame-" + base_frame_prefix.str() + ".pose.txt";
-  std::vector<float> base2world_vec = LoadMatrixFromFile(base2world_file, 4, 4);
-  std::copy(base2world_vec.begin(), base2world_vec.end(), base2world);
+  //std::ostringstream base_frame_prefix;
+  //base_frame_prefix << std::setw(6) << std::setfill('0') << base_frame_idx;
+  //std::string base2world_file = data_path + "\\frame-" + base_frame_prefix.str() + ".pose.txt";
+  //std::vector<float> base2world_vec = LoadMatrixFromFile(base2world_file, 4, 4);
+  //std::copy(base2world_vec.begin(), base2world_vec.end(), base2world);
 
   // Invert base frame camera pose to get world-to-base frame transform 
-  float base2world_inv[16] = {0};
-  invert_matrix(base2world, base2world_inv);
+  //float base2world_inv[16] = {0};
+  //invert_matrix(base2world, base2world_inv);
 
 
   // Loop through each depth frame and integrate TSDF voxel grid
@@ -67,18 +67,17 @@ int main(int argc, char * argv[]) {
     ReadDepth(depth_im_file, im_height, im_width, depth_im);
 
     // Read base frame camera pose
-    std::string cam2world_file = data_path + "\\frame-" + curr_frame_prefix.str() + ".pose.txt";
-    std::vector<float> cam2world_vec = LoadMatrixFromFile(cam2world_file, 4, 4);
-    std::copy(cam2world_vec.begin(), cam2world_vec.end(), cam2world);
+    std::string world2camera_file = "E:\\GrUVi\\wuqiw\\tsdf-mc\\upperbody_reconstruction\\frame-000000.world-to-camera.txt";
+    std::vector<float> world2camera_vec = LoadMatrixFromFile(world2camera_file, 4, 4);
+    std::copy(world2camera_vec.begin(), world2camera_vec.end(), world2cam);
 
     // Compute relative camera pose (camera-to-base frame)
-    multiply_matrix(base2world_inv, cam2world, cam2base);
-
-  
+   // multiply_matrix(base2world_inv, cam2world, cam2base);
+	
 
    std::cout << "Fusing: " << depth_im_file << std::endl;
 
-	volume.Integrate(depth_im,cam_K,cam2base);
+   volume.Integrate(depth_im,cam_K,world2cam);
 
   }
 
@@ -87,7 +86,7 @@ int main(int argc, char * argv[]) {
   vector<float3> vertices ;
   vector<int3> triangles;
   extract_surface(volume, vertices, triangles);
-  write_to_ply("tsdf_test.ply",vertices,triangles);
+  write_to_ply("upperbody.ply",vertices,triangles);
 
   
   delete depth_im;
