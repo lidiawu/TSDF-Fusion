@@ -128,7 +128,7 @@ Marching cubes is a computer graphics algorithm came up by Lorensen and Cline~\c
 \label{fig:tsdf_mc}
 \end{figure}
 
-Since there are eight vertices in each cube and two slates, inside and outside, there are only $2^8 = 256$ ways a surface can intersect the cube. By enumerating these 256 cases, we create a table to look up surface-edge intersections, given the labeling of a cubes vertices. The table contains the edges intersected for each case. 256 cases can be summarized into 15 cases by eradicating symmetric cases, shown in Fig.~\ref{fig:triangulation}
+Since there are eight vertices in each cube and two slates, inside and outside, there are only $2^8 = 256$ ways a surface can intersect the cube. By enumerating these 256 cases, we create a table to look up surface-edge intersections, given the labeling of a cubes vertices. The table contains the edges intersected for each case. 256 cases can be summarized into 15 cases by eradicating symmetric cases, shown in Fig.~\ref{fig:triangulation}.
 
 \begin{figure}[h]
 \centering
