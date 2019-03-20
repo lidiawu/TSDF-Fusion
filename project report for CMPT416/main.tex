@@ -152,7 +152,7 @@ We create an index for each case, based on the state of the vertex. Using the ve
 \label{fig:cubenum}
 \end{figure}
 
-In this project, each voxel moves independently to reconstruct a non-rigid object. In other words, cubes used in this algorithm might not be regular cubes. However, we assume that the deformation of objects is tiny between two frames so the algorithm works well under this condition. 
+In this project, each voxel moves independently to reconstruct a non-rigid object. In other words, cubes used in this algorithm might not be regular cubes. The algorithm works well under this condition since we assume that the deformation of objects is tiny between two frames.
 \section{Result}
 In order to focus on the reconstruction of main objects, we eliminate rigid background while reading depth frames. After initializing TSDF from the first frame, we apply marching cubes algorithm to it and then extract the mesh which is used as the input to the optimization of deformation. 
 \begin{figure}[h]
