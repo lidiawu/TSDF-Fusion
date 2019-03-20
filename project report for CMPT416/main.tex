@@ -66,7 +66,7 @@ TSDF(Truncated signed distance field) represents surface interfaces as zeros, fr
 \label{fig:TSDF}
 \end{figure}
 
-Unlike the reconstruction of rigid objects in which all voxels are fixed in the world coordinate system, voxels may move while reconstructing non-rigid objects. Therefore, each voxel has its own coordinate and its 8 verteices also have coordinates, shown in Fig.~\ref{fig:sub1}. The voxel coordinates are calculated using trilinear interpolation algorithm with their surrounding 8 grid coordinates, shown in Fig.~\ref{fig:sub2}.
+Unlike the reconstruction of rigid objects in which all voxels are fixed in the world coordinate system, voxels may move while reconstructing non-rigid objects. Therefore, each voxel has its own coordinate and its 8 verteices also have coordinates, shown in Fig. 3(a). The voxel coordinates are calculated using trilinear interpolation algorithm with their surrounding 8 grid coordinates, shown in Fig. 3(b).
 
 \begin{figure}
 \centering
